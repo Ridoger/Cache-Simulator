@@ -46,28 +46,15 @@ CacheLevel::~CacheLevel() {
 }
 
 uint64_t CacheLevel::get_index(uint64_t addr) {
-    // TODO: Task 1
-    // Compute the set index from the address.
-    // Hint: remove block offset bits first, then keep only the index bits.
-    (void)addr;
-    return 0;
+    return (addr >> offset_bits) & (~(-1 << index_bits));
 }
 
 uint64_t CacheLevel::get_tag(uint64_t addr) {
-    // TODO: Task 1
-    // Compute the tag from the address.
-    // Hint: shift away both block offset bits and set index bits.
-    (void)addr;
-    return 0;
+    return addr >> (offset_bits + index_bits);
 }
 
 uint64_t CacheLevel::reconstruct_addr(uint64_t tag, uint64_t index) {
-    // TODO: Task 1 / Task 2
-    // Rebuild a block-aligned address from a tag and set index.
-    // This helper is useful when writing back an evicted dirty line.
-    (void)tag;
-    (void)index;
-    return 0;
+    return (tag << (offset_bits + index_bits)) | (index << offset_bits);
 }
 
 void CacheLevel::write_back_victim(const CacheLine& line, uint64_t index, uint64_t cycle) {
@@ -79,14 +66,16 @@ void CacheLevel::write_back_victim(const CacheLine& line, uint64_t index, uint64
     // 3. Increment the write-back counter.
     // 4. Reconstruct the evicted block address from tag + index.
     // 5. Send a write access to the next level.
-    (void)line;
-    (void)index;
-    (void)cycle;
+    if (!line.dirty) {
+        return;
+    }
+    ++write_backs;
+    uint64_t evicted_addr = reconstruct_addr(line.tag, index);
+    next_level->access(evicted_addr, 'w', cycle);
+
 }
 
 int CacheLevel::access(uint64_t addr, char type, uint64_t cycle) {
-    int lat = config.latency;
-
     // TODO: Task 1
     // 1. Derive the address fields for the current cache geometry:
     //    - block offset bits
@@ -110,10 +99,41 @@ int CacheLevel::access(uint64_t addr, char type, uint64_t cycle) {
     // 7. Task 3: after demand access logic works, call the prefetcher here and
     //    install returned blocks through install_prefetch(...).
 
-    (void)addr;
-    (void)type;
-    (void)cycle;
-    return lat;
+    uint64_t index = get_index(addr);
+    uint64_t tag = get_tag(addr);
+
+    vector<CacheLine>& set = sets[index];
+    for (size_t i = 0; i < set.size(); ++i) {
+
+        if (set[i].valid && set[i].tag == tag) {  // Cache hit
+
+            ++hits;
+            
+            set[i].dirty |= type == 'w';
+            set[i].is_prefetched = false;
+            policy->onHit(set, i, cycle);
+
+            return config.latency;
+
+        }  
+
+    }
+    
+    // Cache miss
+    ++misses;
+    int victim = policy->getVictim(set);
+    if (set[victim].valid) {
+        write_back_victim(set[victim], index, cycle);
+    }
+
+    set[victim] = CacheLine();
+    set[victim].tag = tag;
+    set[victim].valid = true;
+    set[victim].dirty = type == 'w';
+    policy->onMiss(set, victim, cycle);
+
+    return config.latency + next_level->access(addr, type, cycle);
+
 }
 
 void CacheLevel::install_prefetch(uint64_t addr, uint64_t cycle) {
