@@ -1,6 +1,6 @@
 #let project = "Project 4 Report"
-#let author_1 = "Your Name"
-#let student_id_1 = "12345678"
+#let author_1 = "Haoyu Ren"
+#let student_id_1 = "124090521"
 
 #set page(
   paper: "us-letter",
@@ -150,11 +150,8 @@ which also routes L1 misses to L2 instead of main memory.
 
 == Task 3
 
-
-#placeholder[
-  Describe the optimization work you completed.
-  Mention the advanced replacement policies and prefetchers you implemented.
-]
+Implemented cache optimizations by adding configurable replacement and prefetch components so the simulator can evaluate policies beyond the baseline hierarchy.
+The implementation includes the advanced replacement policies `SRRIP` and `BIP`, together with the `NextLine` and `Stride` prefetchers.
 
 = Address Mapping Explanation
 
@@ -248,44 +245,188 @@ The following results shows that after enabling L2 cache, 27 main-memory accesse
 
 = Task 3 Design Choices
 
-- which replacement policies and prefetchers you implemented
-- whether you designed your own prefetcher
+- Implemented replacement policies: `LRU`, `SRRIP`, and `BIP`.
+
+- Implemented prefetchers: `NextLine` and `Stride`.
+
+- No extra prefetcher are implemented.
 
 = Trace Analysis
 
-- what access patterns you observed in your personalized trace
-- how those patterns influenced your design decisions
-- which student ID was used as the trace-generation seed
+#placeholder()[The trace-generation seed was `124090521`.]
+
+Using `python3 trace_analyzer.py my_trace.txt --block-size 64 --assoc 16 --top 50 --window-size 64`, the dominant strides are:
+
+- `+7`: `4052` accesses (`45.19%`)
+- `+1`: `2263` accesses (`25.24%`)
+- `+64`: `1563` accesses (`17.43%`)
+
+The stride profile already suggests regular access behavior, and the `+64` component is especially important because the 14 most frequently accessed blocks also happen to form a stride-`64` sequence. The per-window summary provides a second clue: in trace [2560, 4416), every 64-access window touches only one set and exactly 14 distinct blocks. The matching count and stride suggested that 14 blocks mapped to the same set were being heavily interleaved in a short period.
+
+Based on this clue, I chose `assoc = 16` as a heuristic design decision. With 16 ways, one set can hold all 14 competing blocks at the same time, which should eliminate the conflict misses caused by repeatedly evicting them. The experimental results were consistent with this hypothesis and gave good performance.
 
 = Experimental Results
 
-tables comparing configurations
+All Task 3 runs below use a `32KB` L1, `64B` blocks, `1`-cycle L1 latency, and `100`-cycle main-memory latency. When L2 is enabled, the simulator creates a `128KB`, `4`-cycle L2 automatically.
+
+Hierarchy baseline and prefetch comparison (`assoc = 16`):
+
+#table(
+  columns: (1.2fr, 1.2fr, 0.95fr, 0.95fr, 1.1fr, 0.8fr),
+  stroke: 0.5pt + luma(200),
+  inset: 6pt,
+  [L1],
+  [L2],
+  [L1 Hit Rate],
+  [L2 Hit Rate],
+  [Memory Accesses],
+  [AMAT],
+
+  [LRU + None],
+  [LRU + None],
+  [30.27%],
+  [72.99%],
+  [1746],
+  [23.25],
+
+  [LRU + NextLine],
+  [LRU + None],
+  [90.87%],
+  [75.39%],
+  [1795],
+  [3.54],
+
+  [LRU + Stride],
+  [LRU + None],
+  [94.52%],
+  [73.16%],
+  [1758],
+  [2.65],
+
+  [LRU + Stride],
+  [LRU + Stride],
+  [94.52%],
+  [96.88%],
+  [1770],
+  [1.98],
+
+  [LRU + Stride],
+  [LRU + NextLine],
+  [94.52%],
+  [96.97%],
+  [1809],
+  [1.63],
+)
+
+Replacement-policy and mixed-level comparison (`assoc = 16`):
+
+#table(
+  columns: (1.2fr, 1.2fr, 0.95fr, 0.95fr, 1.1fr, 0.8fr),
+  stroke: 0.5pt + luma(200),
+  inset: 6pt,
+  [L1],
+  [L2],
+  [L1 Hit Rate],
+  [L2 Hit Rate],
+  [Memory Accesses],
+  [AMAT],
+
+  [LRU + Stride],
+  [LRU + NextLine],
+  [94.52%],
+  [96.97%],
+  [1809],
+  [1.63],
+
+  [SRRIP + Stride],
+  [LRU + NextLine],
+  [94.38%],
+  [96.92%],
+  [1810],
+  [1.64],
+
+  [BIP + Stride],
+  [LRU + NextLine],
+  [89.26%],
+  [96.68%],
+  [1809],
+  [1.84],
+
+  [LRU + Stride],
+  [SRRIP + NextLine],
+  [94.52%],
+  [96.96%],
+  [1811],
+  [1.63],
+
+  [LRU + Stride],
+  [BIP + NextLine],
+  [94.52%],
+  [94.35%],
+  [2178],
+  [1.74],
+)
+
+Associativity sensitivity for the best hierarchy (`L1 = LRU + Stride`, `L2 = LRU + NextLine`):
+
+#table(
+  columns: (0.8fr, 1fr, 1fr, 1.2fr, 0.8fr),
+  stroke: 0.5pt + luma(200),
+  inset: 6pt,
+  [Assoc],
+  [L1 Hit Rate],
+  [L2 Hit Rate],
+  [Memory Accesses],
+  [AMAT],
+
+  [4],
+  [83.03%],
+  [97.49%],
+  [1811],
+  [2.09],
+
+  [8],
+  [83.26%],
+  [97.52%],
+  [1811],
+  [2.08],
+
+  [16],
+  [94.52%],
+  [96.97%],
+  [1809],
+  [1.63],
+
+  [32],
+  [95.41%],
+  [96.87%],
+  [1809],
+  [1.60],
+)
 
 = Best Configuration and Discussion
 
-- your best-performing design
-- why it performs well
-- where it may still fail
+The best measured configuration was a `32KB` `32`-way L1 using `LRU + Stride` and an enabled `128KB` `32`-way L2 using `LRU + NextLine`. This hierarchy achieved `AMAT = 1.60`, improving substantially over the two-level baseline `LRU + None / LRU + None` at `AMAT = 23.25`, and it also beat the provided `Best_AMAT = 1.78`.
+
+This design fits the trace characteristics well. The trace is dominated by regular `+7`, `+1`, and `+64` block strides, so `Stride` is the most effective L1 prefetcher and removes most of the front-end miss cost. After that filtering, the residual stream seen by L2 is more local and near-sequential, which is why `NextLine` at L2 slightly outperformed `Stride` there. The replacement-policy comparison also showed that `BIP` was weaker on this trace, which is consistent with a workload that reuses lines quickly instead of favoring very conservative insertion. The design may still perform worse on traces with irregular or rapidly changing access patterns, because both prefetchers depend on short-term regularity and `NextLine` can waste capacity by fetching adjacent blocks that are never used.
 
 = External Resources and AI Usage
 
-List all external resources you relied on, including websites, textbooks, friends, and LLM tools.
-
 #placeholder[
-  You can keep this section in the following form and replace the bracketed fields:
 
-  - Course materials:
-    CSC3060 course handout and course slides on cache simulation and memory hierarchy.
-  - Project specification:
-    csc3060_spring2026_project4.pdf
-  - External websites / references:
-    [Write "None" if you did not use any.]
-  - Discussion with classmates / friends:
-    [Write "None" if not applicable.]
-  - AI tools used:
-    ChatGPT / Codex was used only as a writing and formatting assistant for preparing the report template and polishing wording. The implementation logic, experiment design, code, measurements, and final technical claims were reviewed and verified by the student before submission.
-  - AI assistance scope:
-    Helped summarize the required report sections from the project PDF and generate a Typst report template matching those requirements. [If you later use AI for code explanation, grammar correction, table formatting, or result phrasing, add that here.]
-  - Link to the LLM conversation:
-    [Paste the conversation link here if required by your instructor or by the platform you used.]
+  *Course materials*
+  - CSAPP
+  - https://zhuanlan.zhihu.com/p/591436083
+  - https://blog.csdn.net/weixin_52310423/article/details/139928135
+  - https://blog.csdn.net/m0_73482688/article/details/127720841
+
+  *AI tools*
+  
+  Codex was used for:
+  - Preparing the typst template for report (see `codex session 1.md`)
+    
+  - Discussing the performance bias of `Stripe` and `NextLine` prefetchers on L2 (see `codex session 2.md`)
+
+  - Finding the pattern of hot blocks (see `codex session 3.md`) 
+
 ]

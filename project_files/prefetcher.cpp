@@ -25,13 +25,18 @@ std::vector<uint64_t> StridePrefetcher::calculatePrefetch(uint64_t current_addr,
         last_stride = 0;
     }
 
+    /*
     std::vector<uint64_t> prefetches;
     auto j = last_block;
-    for (auto i = confidence / 2; i > 0; --i) {
+    for (auto i = confidence; i > 1; --i) {
         j += last_stride;
         prefetches.push_back(j);
     }
-    return prefetches;
+    */
+
+    // return prefetches;
+
+    return confidence > 1 ? std::vector<uint64_t>{last_block + last_stride} : std::vector<uint64_t>{};
 
 }
 

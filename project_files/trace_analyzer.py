@@ -91,8 +91,8 @@ def main():
     parser.add_argument(
         "--window-size",
         type=int,
-        default=256,
-        help="Number of accesses per summary window (default: 256)",
+        default=128,
+        help="Number of accesses per summary window (default: 128)",
     )
     parser.add_argument(
         "--top",
