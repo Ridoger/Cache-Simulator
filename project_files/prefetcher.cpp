@@ -1,29 +1,38 @@
 #include "prefetcher.h"
 
 std::vector<uint64_t> NextLinePrefetcher::calculatePrefetch(uint64_t current_addr, bool miss) {
-    (void)current_addr;
     (void)miss;
-    std::vector<uint64_t> prefetches;
-
-    // TODO: Task 3
-    // 1. Align current_addr down to the current cache block.
-    // 2. Prefetch the next sequential block.
-
-    return prefetches;
+    return std::vector<uint64_t>{current_addr / block_size + 1};
 }
 
 std::vector<uint64_t> StridePrefetcher::calculatePrefetch(uint64_t current_addr, bool miss) {
-    (void)current_addr;
     (void)miss;
 
-    // TODO: Task 3
-    // Suggested design:
-    // 1. Track the previous accessed block.
-    // 2. Compute the current stride in block units.
-    // 3. If the same stride repeats enough times, prefetch the next block at that stride.
-    // 4. Update last_block / last_stride / confidence.
+    if (has_last_block) {
+        uint64_t current_block = current_addr / block_size;
+        int64_t stride = static_cast<int64_t>(current_block) - static_cast<int64_t>(last_block);
+        if (stride == last_stride && stride != 0) {
+            confidence++;
+        } else {
+            confidence = 0;
+        }
+        last_block = current_block;
+        last_stride = stride;
+    } else {
+        has_last_block = true;
+        last_block = current_addr / block_size;
+        confidence = 0;
+        last_stride = 0;
+    }
 
-    return {};
+    std::vector<uint64_t> prefetches;
+    auto j = last_block;
+    for (auto i = confidence / 2; i > 0; --i) {
+        j += last_stride;
+        prefetches.push_back(j);
+    }
+    return prefetches;
+
 }
 
 Prefetcher* createPrefetcher(std::string name, uint32_t block_size) {

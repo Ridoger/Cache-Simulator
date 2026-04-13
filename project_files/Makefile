@@ -19,7 +19,7 @@ TASK3_BLOCK ?= 64
 TASK3_L1_POLICY ?= BIP
 TASK3_L1_PREFETCH ?= Stride
 TASK3_L2_POLICY ?= SRRIP
-TASK3_L2_PREFETCH ?= None
+TASK3_L2_PREFETCH ?= NextLine
 
 .PHONY: all clean run task1 task2 task3 trace_gen
 

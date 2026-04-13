@@ -46,26 +46,18 @@ CacheLevel::~CacheLevel() {
 }
 
 uint64_t CacheLevel::get_index(uint64_t addr) {
-    return (addr >> offset_bits) & (~(-1 << index_bits));
+    return (addr >> offset_bits) & ~((int64_t)-1 << index_bits);
 }
 
 uint64_t CacheLevel::get_tag(uint64_t addr) {
-    return addr >> (offset_bits + index_bits);
+    return addr >> offset_bits + index_bits;
 }
 
 uint64_t CacheLevel::reconstruct_addr(uint64_t tag, uint64_t index) {
-    return (tag << (offset_bits + index_bits)) | (index << offset_bits);
+    return (tag << offset_bits + index_bits) | (index << offset_bits);
 }
 
 void CacheLevel::write_back_victim(const CacheLine& line, uint64_t index, uint64_t cycle) {
-    // TODO: Task 1 / Task 2
-    // Move dirty write-back logic into this helper.
-    // Suggested steps:
-    // 1. If the victim is not dirty, return immediately.
-    // 2. If there is no next level, return immediately.
-    // 3. Increment the write-back counter.
-    // 4. Reconstruct the evicted block address from tag + index.
-    // 5. Send a write access to the next level.
     if (!line.dirty) {
         return;
     }
@@ -101,6 +93,8 @@ int CacheLevel::access(uint64_t addr, char type, uint64_t cycle) {
 
     uint64_t index = get_index(addr);
     uint64_t tag = get_tag(addr);
+    bool miss = true;
+    int lag = config.latency;
 
     vector<CacheLine>& set = sets[index];
     for (size_t i = 0; i < set.size(); ++i) {
@@ -108,31 +102,51 @@ int CacheLevel::access(uint64_t addr, char type, uint64_t cycle) {
         if (set[i].valid && set[i].tag == tag) {  // Cache hit
 
             ++hits;
+            miss = false;
             
             set[i].dirty |= type == 'w';
             set[i].is_prefetched = false;
             policy->onHit(set, i, cycle);
 
-            return config.latency;
+            break;
 
         }  
 
     }
     
-    // Cache miss
-    ++misses;
-    int victim = policy->getVictim(set);
-    if (set[victim].valid) {
-        write_back_victim(set[victim], index, cycle);
+    if (miss) {  // Cache miss
+        ++misses;
+
+        int victim = -1;
+        for (size_t i = 0; i < set.size(); ++i) {
+            if (!set[i].valid) {
+                victim = i;
+                break;
+            }
+        }
+
+        if (victim == -1) {
+            victim = policy->getVictim(set);
+            write_back_victim(set[victim], index, cycle);
+            set[victim] = CacheLine();
+        }
+
+        set[victim].tag = tag;
+        set[victim].valid = true;
+        set[victim].dirty = type == 'w';
+        policy->onMiss(set, victim, cycle);
+
+        lag += next_level->access(addr, type, cycle);
+
     }
 
-    set[victim] = CacheLine();
-    set[victim].tag = tag;
-    set[victim].valid = true;
-    set[victim].dirty = type == 'w';
-    policy->onMiss(set, victim, cycle);
+    // Prefetching
+    auto prefetched = prefetcher->calculatePrefetch(addr, miss);
+    for (auto& block: prefetched) {
+        install_prefetch(block, cycle);
+    }
 
-    return config.latency + next_level->access(addr, type, cycle);
+    return lag;
 
 }
 
@@ -144,6 +158,39 @@ void CacheLevel::install_prefetch(uint64_t addr, uint64_t cycle) {
     // write_back_victim(...) instead of duplicating that logic.
     (void)addr;
     (void)cycle;
+
+    uint64_t index = addr & ~((int64_t)-1 << index_bits);
+    uint64_t tag = addr >> index_bits;
+    vector<CacheLine>& set = sets[index];
+    
+    for (size_t i = 0; i < set.size(); ++i) {
+        if (set[i].valid && set[i].tag == tag) {  // Already fetched
+            return;
+        }
+    }
+
+    ++prefetch_issued;
+    int victim = -1;
+    for (size_t i = 0; i < set.size(); ++i) {
+        if (!set[i].valid) {
+            victim = i;
+            break;
+        }
+    }
+    if (victim == -1) {
+        victim = policy->getVictim(set);
+        write_back_victim(set[victim], index, cycle);
+        set[victim] = CacheLine();
+    }
+
+    set[victim].tag = tag;
+    set[victim].valid = true;
+    set[victim].dirty = false;
+    set[victim].is_prefetched = true;
+    policy->onMiss(set, victim, cycle);
+
+    next_level->access(reconstruct_addr(tag, index), 'r', cycle);
+
 }
 
 void CacheLevel::printStats() {
