@@ -423,7 +423,7 @@ This design fits the trace characteristics well. The trace is dominated by regul
   *AI tools*
   
   Codex was used for:
-  - Preparing the typst template for report (see `codex session 1.md`)
+  - Preparing the typst template for report (see `codex session 1.md` in the zip file)
     
   - Discussing the performance bias of `Stripe` and `NextLine` prefetchers on L2 (see `codex session 2.md`)
 
